@@ -1,0 +1,355 @@
+<!--
+	Travis Jones N00436223
+	HW4 CIS4930
+	This program is based on the Ear Clipping algorithm 
+	available at https://www.geometrictools.com/Documentation/TriangulationByEarClipping.pdf
+ -->
+
+ <head>
+	<meta charset="UTF-8">
+	<link rel="stylesheet" type="text/css" href="http://jsxgraph.uni-bayreuth.de/distrib/jsxgraph.css" />
+	<script type="text/javascript" src="http://jsxgraph.uni-bayreuth.de/distrib/jsxgraphcore.js"></script>
+</head>
+
+<body>
+	<div id="jxgbox" class="jxgbox" style="left:350px; position:absolute; width:1000px; height:600px;"> </div> 	
+	<div style="width:300px; position:absolute; top:30px">
+		<p>Travis Jones N00436223</p>
+		<p>HW4 CIS4930</p>
+		<p>Draw a simple polygon by clicking to create vertices.
+			Edges are created sequentially between vertices.
+			Click "Connect first and last vertices", which occurs
+			automatically in any case.
+			Click "Triangulate" to triangulate the polygon.
+		</p>
+		<p>This program is based on the Ear Clipping algorithm 
+			available at <a target="_blank" href="https://www.geometrictools.com/Documentation/TriangulationByEarClipping.pdf">
+				this source.</a></p>
+	</div>
+	<button id="button0" type="button" style="width:250px; position:absolute;  top:300px;" onclick="face.drawFinal(board)">Connect first and last vertices</button>
+	<button id="button1" type="button" style="width:250px; position:absolute;  top:325px;" onclick="triangulate(board)">Triangulate</button>
+	<div id="textDiv" style="position:absolute; top:250px; color:blue; "></div>
+
+	<script type="text/javascript">	
+
+		//Twin (outer) half-edges are left out
+		class HalfEdge {
+
+			constructor(origin, prev, next) {
+				this.origin = origin;
+				//this.twin = twin;
+				this.prev = prev;
+				this.next = next;
+			}
+
+		}
+		
+		class Vertex {
+
+			constructor(x, y, point) {
+				this.x = x;
+				this.y = y;
+
+				//Store a reference to the point object
+				//associated with this vertex
+				this.point = point;
+				this.halfEdge = new HalfEdge();
+			}
+			
+		}
+		//Outer half-edges are left out
+		class Face{
+			//innerList is an array of the inner half-edges of this face.
+
+			constructor() {
+				this.innerList = new Array();
+				this.earsClipped = 0;
+			}
+			//addEdge creates a new HalfEdge and pushes it to 
+			//innerList. If innerList has more than 0 elements,
+			//a line gets drawn to represent that HalfEdge.
+			//This method runs as points are drawn by the user.
+			addEdge(origin) {
+				if(this.innerList.length > 0) {
+					this.halfEdge = new HalfEdge(origin, this.innerList[this.innerList.length-1], this.innerList[0]);
+					origin.halfEdge = this.halfEdge;
+
+					this.innerList[this.innerList.length-1].next = this.halfEdge;
+
+					this.innerList[0].prev = this.halfEdge;
+
+					this.innerList.push(this.halfEdge);
+
+					//Draw a line between the two vertices
+					board.create('segment',[this.halfEdge.prev.origin.point,this.halfEdge.origin.point],{fillColor:'green',strokeColor:'green'});
+				}
+				//If innerList.length is 0, origin is the first point the user has drawn
+				//so its initial half edge points both forward and backward at itself
+				else {
+					this.halfEdge = new HalfEdge(origin);
+					origin.halfEdge = this.halfEdge;
+
+					this.halfEdge.next = this.halfEdge;
+					this.halfEdge.prev = this.halfEdge;
+
+					this.innerList.push(this.halfEdge);
+				}
+			}
+			//drawFinal draws a line segment between the final 2 points drawn
+			drawFinal() {
+				board.create('segment',[this.innerList[this.innerList.length-1].origin.point,this.innerList[0].origin.point],{fillColor:'green',strokeColor:'green'});
+			}
+		}
+		//Create a new instance of Face as a global variable
+		face = new Face();
+
+		/***************** Do not alter, unless required! ***************/
+		var boardParams = { boundingbox: [-0.2,50,50,-0.2], 
+			               grid :true, 
+			               axis: false, 
+			               showCopyright:false, 
+			               showNavigation:false, 
+			              };
+					  	
+		var getMouseCoords = function(e, i) 
+		{
+			var cPos = board.getCoordsTopLeftCorner(e, i),
+			absPos = JXG.getPosition(e, i),
+			dx = absPos[0] - cPos[0],
+			dy = absPos[1] - cPos[1];
+            return new JXG.Coords(JXG.COORDS_BY_SCREEN, [dx, dy], board);
+        }; 
+		//checkAngle returns true if vertex is a reflex vertex (interior angle > 180)
+		//Convex vertices will return false
+		function checkAngle(p1, p2, p3) {
+
+			if(JXG.Math.Geometry.trueAngle(p1, p2, p3) > 180) {
+				return true;
+			}
+			else {
+				return false;
+			}
+		}
+		//Based on https://stackoverflow.com/questions/2049582/how-to-determine-if-a-point-is-in-a-2d-triangle
+		//Determines if a point p1 is in the half plane
+		//extending from the segment between p2 and p3
+		function inHalfPlane(p1, p2, p3) {
+			return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
+		}
+		//Based on https://stackoverflow.com/questions/2049582/how-to-determine-if-a-point-is-in-a-2d-triangle
+		//If a point p is inside the triange formed by p1 p2 and p3,
+		//this function returns true and the triangle must not be an ear.
+		function insideTriangle(p, p1, p2, p3) {
+			var first, second, third;
+
+			if(inHalfPlane(p, p1, p2) < 0) {
+				first = true;
+			}
+			if(inHalfPlane(p, p2, p3) < 0) {
+				second = true;
+			}
+			if(inHalfPlane(p, p3, p1) < 0) {
+				third = true;
+			}
+
+			return ((first == second) && (second == third));
+
+		}
+		//Check whether a vertex is an ear tip.
+		function checkEar(vertex) {
+
+			var current = vertex.halfEdge.next.next.origin;
+			
+			//Loop through all other vertices, checking whether they
+			//are inside of the ear from vertex
+
+			while(current != vertex.halfEdge.prev.origin) {
+				if(current.halfEdge.prev.origin.x == current.halfEdge.next.origin.x && current.halfEdge.prev.origin.y == current.halfEdge.next.origin.y) {
+					break;
+				}
+				if(insideTriangle(current, vertex, vertex.halfEdge.prev.origin, vertex.halfEdge.next.origin)) {
+					return false;
+				}
+				current = current.halfEdge.next.origin;
+			}
+
+			return true;
+		}
+		//clipEars is a recursive function that goes through lists
+		//of ears, reflex angles and convex angles to "clip" ears
+		//by drawing new diagonals and adding new HalfEdges between
+		//the vertices adjacent to the ear tips.
+		function clipEars(ears, reflex, convex) {
+
+			if(ears.length == 0) {
+				return;
+			}
+			//If there are less than 4 vertices left, there are no more ears
+			if(ears.length + reflex.length + convex.length - face.earsClipped < 4) {
+				console.log("e = 0");
+				return;
+			}
+
+			var earTip = ears.pop();
+			
+			if(earTip.halfEdge.prev.prev.next === void 0) {
+				return;
+			}
+			//Increment earsClipped to keep track of how many ears
+			//have been clipped.
+			face.earsClipped++;
+
+			//This statement resolves an issue where eventually a vertex has
+			//has next and prev edges that point back to that same vertex
+			if(earTip.halfEdge.prev.origin.x == earTip.halfEdge.next.origin.x && earTip.halfEdge.prev.origin.y == earTip.halfEdge.next.origin.y) {
+				return;
+			}
+
+			//Create a new half edge for this ear, and update the
+			//references in the doubly connected half edge list
+			//to exclude the previous 2 edges that pointed to the ear tip
+			//replacing them with the new half edge
+			var newEdge = new HalfEdge();
+			earTip.halfEdge.next.prev = newEdge;
+			earTip.halfEdge.prev.prev.next = newEdge;
+			newEdge.next = earTip.halfEdge.next;
+			newEdge.prev = earTip.halfEdge.prev.prev;
+			newEdge.origin = earTip.halfEdge.prev.origin;
+			earTip.halfEdge.prev.origin.halfEdge = newEdge;
+
+			//Draw a line segment for the new edge
+			board.create('segment',[newEdge.origin.point,newEdge.next.origin.point],{fillColor:'green',strokeColor:'green'});				
+			
+			index = ears.indexOf(newEdge.next.origin);
+
+			//Check if the adjacent vertex that was after the earTip
+			//is still an ear, if it was before
+			if(index != -1) {
+				if(!checkEar(newEdge.next.origin)) {
+						ears.splice(index, 1);
+					}
+			}
+
+			var index = ears.indexOf(newEdge.origin);
+			
+			//Check if the adjacent vertex that was before the earTip
+			//is still an ear, if it was before
+			if(index != -1) {
+				if(!checkEar(newEdge.origin)) {
+						ears.splice(index, 1);
+					}
+			}
+
+			console.log("ears after after " + (ears.length));
+
+			index = reflex.indexOf(newEdge.next.origin);
+
+			//Check if the adjacent vertex that was after the earTip
+			//is convex, if it was reflex before
+
+			if(index != -1) {
+				if(!checkAngle(newEdge.origin.point, newEdge.next.origin.point, newEdge.next.next.origin.point)) {
+					convex.push(newEdge.next.origin);
+					reflex.splice(index, 1);
+				}
+			}
+		
+			index = reflex.indexOf(newEdge.origin);
+
+			//Check if the adjacent vertex that was before the earTip
+			//is convex, if it was reflex before
+
+			if(index != -1) {
+				if(!checkAngle(newEdge.prev.origin.point, newEdge.origin.point, newEdge.next.origin.point)) {
+					convex.push(newEdge.origin);
+					reflex.splice(index, 1);
+				}
+			}
+			index = convex.indexOf(newEdge.next.origin);
+
+			//Check if the adjacent vertex that was after the earTip
+			//is now an ear, if it is convex
+
+			if(index != -1) {
+				if(checkEar(newEdge.next.origin)) {
+					ears.push(newEdge.next.origin);
+				}
+			}
+
+			index = convex.indexOf(newEdge.origin);
+
+			//Check if the adjacent vertex that was before the earTip
+			//is now an ear, if it is convex
+
+			if(index != -1) {
+				if(checkEar(newEdge.origin)) {
+					ears.push(newEdge.origin);
+				}
+			}
+						console.log("ears after after after" + (ears.length));
+
+			clipEars(ears, reflex, convex);
+
+			console.log("unwinding");
+
+			return;
+
+		}
+     	/*********************************************************************/
+		//triangulate makes lists of all the initial reflex, convex, and eartip
+		//vertices, then it calls clipEars to recursively triangulate
+		//simple polygons.
+		function triangulate(board)	{
+
+			var reflex = new Array();
+			var convex = new Array();
+
+			face.drawFinal();
+
+			//Find reflex and convex vertices
+			for(var i=0; i<face.innerList.length; i++) {
+				if(checkAngle(face.innerList[i].prev.origin.point, face.innerList[i].origin.point, face.innerList[i].next.origin.point) == true) {
+					reflex.push(face.innerList[i].origin);
+				}
+				else {
+					convex.push(face.innerList[i].origin);
+				}
+			}
+
+			var ears = new Array();
+
+			//If a vertex is convex, it may be an ear tip
+			for(i=0; i<convex.length; i++) {
+				if(checkEar(convex[i])) {
+					ears.push(convex[i]);
+				}
+			}
+
+			clipEars(ears, reflex, convex);
+
+			return;
+		}
+		/*********************************************************************/
+		/* Mouse drawing function */
+        var down = function(e) 
+        {
+			var canCreatePoint = true, i, coords;
+			if (e[JXG.touchProperty])			
+				i = 0; 				
+			coords = getMouseCoords(e, i);
+			var point = board.create('point',[coords.usrCoords[1],coords.usrCoords[2]], {highlightFillColor:'Gray', highlightStrokeColor:'Gray', size:2, 		
+                        fillColor:'RoyalBlue',  strokeColor:'RoyalBlue'});
+
+			//Create new vertices as the user draws them
+			var vertex = new Vertex(point.X(), point.Y(), point);
+
+			//Add a new edge between the new vertex and the previous vertex
+			face.addEdge(vertex);
+		};
+		/*********************************************************************/	
+		/* Create a board */
+		var board = JXG.JSXGraph.initBoard('jxgbox',boardParams);		
+		board.on('down', down);
+     	board.off('off', down);
+	</script>
+</body>
